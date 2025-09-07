@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>The Last Sage - Battle of the Ghosts</title>
+<style>
+html,body{margin:0;padding:0;height:100%;overflow:hidden;background:black;font-family:sans-serif;}
+canvas{display:block;width:100vw;height:100vh;background:black;}
+
+/* Top HUD */
+#hud{
+  position:fixed;top:0;left:0;width:100%;
+  display:flex;justify-content:space-between;align-items:center;
+  background:rgba(0,0,0,0.7);color:#0ff;font-size:4vw;padding:2vw;z-index:50;
+}
+#hud .title{font-weight:bold;font-size:5vw;}
+#pauseBtn{
+  background:none;border:2px solid #0ff;color:#0ff;
+  padding:1vw 3vw;border-radius:1vw;font-size:4vw;
+}
+
+/* Spiral speed buttons always visible */
+#speedControls{
+  position:fixed;top:calc(10vw + 2vh);left:50%;transform:translateX(-50%);
+  display:flex;gap:1vw;z-index:50;
+}
+#speedControls button{
+  padding:1vw 3vw;font-size:3vw;background:#111;color:#0ff;border:2px solid #0ff;border-radius:1vw;
+}
+
+/* Touch controls */
+.btn{
+  position:fixed;bottom:2vh;width:18vw;height:18vw;
+  background:rgba(0,0,0,0.5);border-radius:50%;
+  color:white;font-size:8vw;text-align:center;line-height:18vw;
+  user-select:none;z-index:50;
+}
+#leftBtn{left:2vw;}
+#rightBtn{left:22vw;}
+#shootBtn{right:2vw;background:rgba(0,150,255,0.7);}
+
+/* Overlay for start/restart */
+#overlay{
+  position:fixed;top:0;left:0;width:100%;height:100%;
+  background:black;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;z-index:100;color:#0ff;text-align:center;
+}
+#overlay h1{font-size:8vw;margin:0 0 5vw;}
+#overlay button{
+  margin-top:4vw;padding:2vw 5vw;font-size:5vw;
+  background:#111;color:#0ff;border:2px solid #0ff;border-radius:2vw;cursor:pointer;
+}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<!-- HUD -->
+<div id="hud">
+  <div class="title">The Last Sage</div>
+  <div>⏱ <span id="time">0</span>s | ⭐ <span id="best">0</span>s</div>
+  <button id="pauseBtn">⏸</button>
+</div>
+
+<!-- Spiral speed buttons -->
+<div id="speedControls">
+  <button onclick="setSpiralSpeed(0)">Off</button>
+  <button onclick="setSpiralSpeed(0.5)">1</button>
+  <button onclick="setSpiralSpeed(1)">2</button>
+  <button onclick="setSpiralSpeed(2)">3</button>
+</div>
+
+<!-- Touch controls -->
+<div id="leftBtn" class="btn">◀</div>
+<div id="rightBtn" class="btn">▶</div>
+<div id="shootBtn" class="btn">🔫</div>
+
+<!-- Overlay -->
+<div id="overlay">
+  <h1>The Last Sage<br/>Battle of the Ghosts</h1>
+  <button id="playBtn">▶ Play</button>
+</div>
+
+<script>
+const canvas=document.getElementById("game"),ctx=canvas.getContext("2d");
+function resize(){canvas.width=innerWidth;canvas.height=innerHeight;}
+resize();addEventListener("resize",resize);
+
+// Game state
+let gameRunning=false,paused=false,startTime,elapsed=0;
+let bestTime=parseInt(localStorage.getItem("sageBest")||"0");
+document.getElementById("best").innerText=bestTime;
+let spiralSpeed=1;
+function setSpiralSpeed(s){spiralSpeed=s;}
+
+// Controls
+const keys={};
+function setKey(k,v){keys[k]=v;}
+addEventListener("keydown",e=>keys[e.key]=true);
+addEventListener("keyup",e=>keys[e.key]=false);
+document.getElementById("leftBtn").addEventListener("touchstart",()=>setKey("ArrowLeft",true));
+document.getElementById("leftBtn").addEventListener("touchend",()=>setKey("ArrowLeft",false));
+document.getElementById("rightBtn").addEventListener("touchstart",()=>setKey("ArrowRight",true));
+document.getElementById("rightBtn").addEventListener("touchend",()=>setKey("ArrowRight",false));
+
+let autoFire=null;
+function shoot(){if(!gameRunning)return;
+  if(player.power==="laser")player.bullets.push({x:player.x,y:player.y,vy:-15,w:12,h:30});
+  else player.bullets.push({x:player.x,y:player.y,vy:-10,w:6,h:20});
+}
+function startFire(){if(autoFire)return;shoot();autoFire=setInterval(shoot,180);}
+function stopFire(){clearInterval(autoFire);autoFire=null;}
+document.getElementById("shootBtn").addEventListener("touchstart",startFire);
+document.getElementById("shootBtn").addEventListener("touchend",stopFire);
+addEventListener("keydown",e=>{if(e.code==="Space")shoot();});
+
+// Pause
+document.getElementById("pauseBtn").onclick=()=>{
+  if(!gameRunning)return;
+  paused=!paused;
+  document.getElementById("pauseBtn").innerText=paused?"▶":"⏸";
+  if(!paused) loop();
+};
+
+// Start game
+document.getElementById("playBtn").onclick=()=>{document.getElementById("overlay").style.display="none";startGame();};
+
+// Entities
+const player={x:0,y:0,r:30,speed:6,bullets:[],power:null,powerEnd:0};
+const ghosts=[],bosses=[],bossBullets=[],powerups=[];
+
+function startGame(){
+  ghosts.length=0;bosses.length=0;bossBullets.length=0;powerups.length=0;
+  player.bullets.length=0;player.x=canvas.width/2;player.y=canvas.height-80;player.power=null;
+  gameRunning=true;paused=false;startTime=Date.now();elapsed=0;
+  loop();
+}
+
+// Spawning
+function spawnGhost(){if(!gameRunning)return;
+  const x=Math.random()*(canvas.width-40)+20;
+  ghosts.push({x,y:-40,vy:2+Math.random()*2,r:25});
+}
+setInterval(spawnGhost,1000);
+function spawnBoss(){bosses.push({x:canvas.width/2,y:100,r:50,hits:12,dir:1,shootTimer:0});}
+function spawnPowerup(){
+  const t=["shield","laser"][Math.floor(Math.random()*2)];
+  const x=Math.random()*(canvas.width-40)+20;
+  powerups.push({x,y:-40,vy:3,type:t});
+}
+
+// Collisions
+function collision(a,b,ra,rb){return Math.hypot(a.x-b.x,a.y-b.y)<ra+rb;}
+function rectCircleCollide(rect,circ){return Math.abs(rect.x-circ.x)<circ.r && Math.abs(rect.y-circ.y)<circ.r;}
+function activatePower(t){player.power=t;player.powerEnd=Date.now()+10000;}
+
+// Update
+let bossSpawnTimer=0,powerupTimer=0;
+function update(){
+  if(!gameRunning||paused)return;
+  elapsed=Math.floor((Date.now()-startTime)/1000);
+  document.getElementById("time").innerText=elapsed;
+  if(elapsed>bestTime){bestTime=elapsed;localStorage.setItem("sageBest",bestTime);}
+  document.getElementById("best").innerText=bestTime;
+
+  bossSpawnTimer++; if(bossSpawnTimer>60*20){spawnBoss();bossSpawnTimer=0;}
+  powerupTimer++; if(powerupTimer>60*8){spawnPowerup();powerupTimer=0;}
+
+  if(keys["ArrowLeft"])player.x-=player.speed;
+  if(keys["ArrowRight"])player.x+=player.speed;
+  player.x=Math.max(player.r,Math.min(canvas.width-player.r,player.x));
+
+  for(let i=player.bullets.length-1;i>=0;i--){const b=player.bullets[i];b.y+=b.vy;if(b.y<-30)player.bullets.splice(i,1);}
+  for(let i=ghosts.length-1;i>=0;i--){const g=ghosts[i];g.y+=g.vy;
+    if(g.y>canvas.height+50){ghosts.splice(i,1);continue;}
+    if(collision(player,g,player.r,g.r)){if(player.power!=="shield")return gameOver();else ghosts.splice(i,1);}
+    for(let j=player.bullets.length-1;j>=0;j--){const b=player.bullets[j];if(rectCircleCollide(b,g)){ghosts.splice(i,1);player.bullets.splice(j,1);break;}}
+  }
+  for(let i=bosses.length-1;i>=0;i--){const bs=bosses[i];bs.x+=bs.dir*2;if(bs.x<bs.r||bs.x>canvas.width-bs.r)bs.dir*=-1;
+    bs.shootTimer++; if(bs.shootTimer>90){bossBullets.push({x:bs.x,y:bs.y+bs.r+8,vx:(Math.random()-0.5)*2,vy:5,r:10});bs.shootTimer=0;}
+    if(collision(player,bs,player.r,bs.r)){if(player.power!=="shield")return gameOver();}
+    for(let j=player.bullets.length-1;j>=0;j--){const b=player.bullets[j];if(rectCircleCollide(b,bs)){bs.hits--;player.bullets.splice(j,1);if(bs.hits<=0){bosses.splice(i,1);startTime-=10000;}break;}}
+  }
+  for(let i=bossBullets.length-1;i>=0;i--){const bb=bossBullets[i];bb.x+=bb.vx;bb.y+=bb.vy;
+    if(bb.y>canvas.height+50){bossBullets.splice(i,1);continue;}
+    if(collision(player,bb,player.r,bb.r)){if(player.power!=="shield")return gameOver();else{bossBullets.splice(i,1);continue;}}
+    for(let j=player.bullets.length-1;j>=0;j--){const b=player.bullets[j];if(rectCircleCollide(b,bb)){bossBullets.splice(i,1);player.bullets.splice(j,1);break;}}
+  }
+  for(let i=powerups.length-1;i>=0;i--){const p=powerups[i];p.y+=p.vy;if(p.y>canvas.height+50){powerups.splice(i,1);continue;}
+    if(collision(player,p,player.r,20)){activatePower(p.type);powerups.splice(i,1);}}
+  if(player.power&&Date.now()>player.powerEnd)player.power=null;
+}
+
+// Draw
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(spiralSpeed>0){const t=Date.now()/1000*spiralSpeed;
+    for(let i=0;i<200;i++){const angle=i*0.3+t;const r=i*3;
+      const x=canvas.width/2+r*Math.cos(angle),y=canvas.height/2+r*Math.sin(angle);
+      const hue=(i*2+t*50)%360;ctx.fillStyle=`hsl(${hue},80%,50%)`;ctx.fillRect(x,y,2,2);}}
+  if(player.power==="shield"){ctx.strokeStyle="cyan";ctx.lineWidth=3;ctx.beginPath();ctx.arc(player.x,player.y,40,0,Math.PI*2);ctx.stroke();}
+  ctx.font="40px serif";ctx.textAlign="center";ctx.fillText("🧘‍♂️",player.x,player.y);
+  ctx.fillStyle="cyan";for(const b of player.bullets)ctx.fillRect(b.x-b.w/2,b.y-b.h,b.w,b.h);
+  ctx.font="35px serif";for(const g of ghosts)ctx.fillText("👻",g.x,g.y);
+  ctx.font="60px serif";for(const bs of bosses)ctx.fillText("👹",bs.x,bs.y);
+  ctx.font="22px serif";for(const bb of bossBullets)ctx.fillText("🔥",bb.x,bb.y);
+  ctx.font="30px serif";for(const p of powerups)ctx.fillText(p.type==="shield"?"🛡️":"🔷",p.x,p.y);
+}
+
+// Loop
+function loop(){update();draw();if(gameRunning&&!paused)requestAnimationFrame(loop);}
+function gameOver(){gameRunning=false;document.getElementById("overlay").style.display="flex";}
+</script>
+</body>
+</html>
